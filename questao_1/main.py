@@ -1,3 +1,12 @@
+"""
+Questão 1: Desenvolvimento de API REST para Biblioteca Virtual com FastAPI e SQLite.
+
+Endpoints:
+- POST /livros/ : Cadastra um novo livro com validação Pydantic.
+- GET  /livros/ : Consulta livros com suporte a busca parcial (título/autor/combinada) e paginação.
+- GET  /livros/{id} : Recupera um livro específico por ID.
+"""
+
 from collections.abc import Sequence
 
 from fastapi import Depends, FastAPI, HTTPException, Query, status
@@ -8,6 +17,7 @@ from .database import Base, engine, get_db
 from .models import Livro
 from .schemas import LivroCreate, LivroResponse
 
+# Inicializa as tabelas no SQLite caso não existam
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(
@@ -27,6 +37,10 @@ app = FastAPI(
     tags=["Livros"],
 )
 def criar_livro(livro_in: LivroCreate, db: Session = Depends(get_db)) -> Livro:
+    """
+    Persiste um novo livro no SQLite com os campos validados via Pydantic v2:
+    título, autor, data_publicacao e resumo.
+    """
     livro = Livro(
         titulo=livro_in.titulo,
         autor=livro_in.autor,
@@ -54,8 +68,13 @@ def listar_livros(
     limit: int = Query(50, ge=1, le=100, description="Limite de registros por página"),
     db: Session = Depends(get_db),
 ) -> Sequence[Livro]:
+    """
+    Consulta livros no banco de dados. Permite filtros por título, autor
+    ou termo geral (q), além de controle de paginação (skip/limit).
+    """
     stmt = select(Livro)
 
+    # Busca geral textual em título OU autor
     if q:
         search_pattern = f"%{q.strip()}%"
         stmt = stmt.where(
@@ -65,6 +84,7 @@ def listar_livros(
             )
         )
     else:
+        # Filtros específicos combináveis
         if titulo:
             stmt = stmt.where(Livro.titulo.ilike(f"%{titulo.strip()}%"))
         if autor:
@@ -82,6 +102,9 @@ def listar_livros(
     tags=["Livros"],
 )
 def obter_livro(livro_id: int, db: Session = Depends(get_db)) -> Livro:
+    """
+    Recupera um livro pelo ID único. Retorna 404 caso o registro não exista.
+    """
     livro = db.get(Livro, livro_id)
     if not livro:
         raise HTTPException(

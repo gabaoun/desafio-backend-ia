@@ -1,3 +1,13 @@
+"""
+Questão 3: Sistema de Busca Semântica de Documentos com Embeddings e Vector Store (FAISS).
+
+Lógica de Implementação:
+1. Conjunto de documentos de texto (artigos sobre Backend, Python e IA).
+2. Geração de Embeddings vetoriais densos com normalização L2 (para similaridade de cosseno).
+3. Armazenamento e indexação no FAISS (Facebook AI Similarity Search).
+4. Função de busca por proximidade semântica retornando os top-k documentos e respectivos scores.
+"""
+
 import os
 import re
 from collections import Counter
@@ -12,9 +22,9 @@ from langchain_openai import OpenAIEmbeddings
 
 class LocalVectorEmbeddings(Embeddings):
     """
-    Embedder determinístico baseado em n-grams e frequência de termos com projeção normalizada.
-    Executa 100% offline, sem dependência de download de pesos externos, produzindo representações
-    vetoriais densas adequadas para busca por produto interno / distância L2.
+    Modelo de Embeddings determinístico baseado em n-grams e frequência de termos com normalização L2.
+    Permite execução 100% offline e rápida para avaliação técnica sem necessidade de download de pesos,
+    mantendo conformidade total com a interface de Embeddings do LangChain.
     """
 
     def __init__(self, dimension: int = 512) -> None:
@@ -23,7 +33,7 @@ class LocalVectorEmbeddings(Embeddings):
     def _tokenize(self, text: str) -> list[str]:
         words = re.findall(r"\w+", text.lower())
         tokens = list(words)
-        # Adiciona 3-grams de caracteres para cobrir morfologia e variações
+        # Geração de 3-grams para capturar raízes e variações morfológicas
         for w in words:
             if len(w) >= 3:
                 tokens.extend([w[i : i + 3] for i in range(len(w) - 2)])
@@ -37,7 +47,7 @@ class LocalVectorEmbeddings(Embeddings):
 
         counts = Counter(tokens)
         for token, count in counts.items():
-            # Hash estável determinístico (FNV-1a 64-bit)
+            # Hash estável determinístico FNV-1a de 64-bit
             h = 14695981039346656037
             for byte in token.encode("utf-8"):
                 h = ((h ^ byte) * 1099511628211) & 0xFFFFFFFFFFFFFFFF
@@ -45,6 +55,7 @@ class LocalVectorEmbeddings(Embeddings):
             weight = (1.0 + np.log(count)) * (1.0 + len(token) / 10.0)
             vec[idx] += weight
 
+        # Normalização vetorial L2 (converte distância euclidiana em equivalência de cosseno)
         norm = np.linalg.norm(vec)
         if norm > 0:
             vec = vec / norm
@@ -58,6 +69,7 @@ class LocalVectorEmbeddings(Embeddings):
 
 
 def default_corpus() -> list[Document]:
+    """Base de conhecimento composta por artigos técnicos sobre Python, Backend e IA."""
     articles = [
         {
             "title": "Concorrencia e Assincronia com AsyncIO",
@@ -96,6 +108,8 @@ def default_corpus() -> list[Document]:
 
 
 class SemanticSearchEngine:
+    """Motor de indexação vetorial e busca semântica utilizando FAISS."""
+
     def __init__(self, embeddings: Embeddings | None = None) -> None:
         if embeddings is not None:
             self.embeddings = embeddings
@@ -107,22 +121,29 @@ class SemanticSearchEngine:
         self.index: FAISS | None = None
 
     def build_index(self, documents: Sequence[Document]) -> None:
+        """Gera os embeddings dos documentos e constrói o índice FAISS."""
         self.index = FAISS.from_documents(
             documents=list(documents),
             embedding=self.embeddings,
         )
 
     def search(self, query: str, top_k: int = 2) -> list[tuple[Document, float]]:
+        """
+        Executa a busca semântica por similaridade vetorial retornando os top_k
+        documentos mais próximos e seus respectivos scores de distância.
+        """
         if self.index is None:
             raise ValueError("Indice nao inicializado. Chame build_index primeiro.")
         results = self.index.similarity_search_with_score(query, k=top_k)
         return [(doc, float(score)) for doc, score in results]
 
     def save(self, directory_path: str) -> None:
+        """Serializa e salva o índice FAISS em disco."""
         if self.index:
             self.index.save_local(directory_path)
 
     def load(self, directory_path: str) -> None:
+        """Carrega um índice FAISS serializado em disco."""
         self.index = FAISS.load_local(
             directory_path,
             self.embeddings,
